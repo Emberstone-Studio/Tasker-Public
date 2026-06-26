@@ -33,6 +33,8 @@ jobs:
             -DGGML_METAL=OFF `
             -DGGML_BLAS=OFF `
             -DGGML_OPENMP=OFF `
+            -DGGML_CPU_AARCH64=ON `
+            -DGGML_CPU_ALL_VARIANTS=OFF `
             -DWHISPER_SDL2=OFF `
             -DWHISPER_BUILD_TESTS=OFF `
             -DWHISPER_BUILD_EXAMPLES=ON `
