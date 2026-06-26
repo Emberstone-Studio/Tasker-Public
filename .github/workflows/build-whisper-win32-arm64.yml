@@ -1,0 +1,69 @@
+name: Build whisper.cpp win32-arm64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+
+    steps:
+      - name: Install Ninja and CMake
+        run: choco install ninja cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
+      - name: Check out whisper.cpp v1.8.6
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: v1.8.6
+
+      - name: Set up MSVC (ARM64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_SYSTEM_PROCESSOR=ARM64 `
+            -DBUILD_SHARED_LIBS=ON `
+            -DGGML_NATIVE=OFF `
+            -DGGML_CUDA=OFF `
+            -DGGML_METAL=OFF `
+            -DGGML_BLAS=OFF `
+            -DGGML_OPENMP=OFF `
+            -DWHISPER_SDL2=OFF `
+            -DWHISPER_BUILD_TESTS=OFF `
+            -DWHISPER_BUILD_EXAMPLES=ON `
+            -DWHISPER_BUILD_SERVER=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --target whisper-cli -j
+
+      - name: Collect binaries
+        run: |
+          mkdir artifacts
+          copy build\bin\whisper-cli.exe artifacts\
+          copy build\bin\whisper.dll artifacts\
+          copy build\bin\ggml.dll artifacts\
+          copy build\bin\ggml-base.dll artifacts\
+          copy build\bin\ggml-cpu.dll artifacts\
+
+      - name: Smoke test
+        run: artifacts\whisper-cli.exe --help
+
+      - name: Print SHA-256 checksums
+        run: |
+          Get-FileHash artifacts\whisper-cli.exe -Algorithm SHA256
+          Get-FileHash artifacts\whisper.dll -Algorithm SHA256
+          Get-FileHash artifacts\ggml.dll -Algorithm SHA256
+          Get-FileHash artifacts\ggml-base.dll -Algorithm SHA256
+          Get-FileHash artifacts\ggml-cpu.dll -Algorithm SHA256
+        shell: pwsh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-win32-arm64
+          path: artifacts\
