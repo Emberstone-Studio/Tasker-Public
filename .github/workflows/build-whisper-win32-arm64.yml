@@ -17,15 +17,19 @@ jobs:
           repository: ggml-org/whisper.cpp
           ref: v1.8.6
 
-      - name: Set up MSVC (ARM64)
+      - name: Set up MSVC (native ARM64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: amd64_arm64
+          arch: arm64
 
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER="C:/Program Files/LLVM/bin/clang-cl.exe" `
+            -DCMAKE_CXX_COMPILER="C:/Program Files/LLVM/bin/clang-cl.exe" `
+            -DCMAKE_C_FLAGS="--target=aarch64-pc-windows-msvc" `
+            -DCMAKE_CXX_FLAGS="--target=aarch64-pc-windows-msvc" `
             -DCMAKE_SYSTEM_PROCESSOR=ARM64 `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
@@ -33,8 +37,6 @@ jobs:
             -DGGML_METAL=OFF `
             -DGGML_BLAS=OFF `
             -DGGML_OPENMP=OFF `
-            -DGGML_CPU_AARCH64=ON `
-            -DGGML_CPU_ALL_VARIANTS=OFF `
             -DWHISPER_SDL2=OFF `
             -DWHISPER_BUILD_TESTS=OFF `
             -DWHISPER_BUILD_EXAMPLES=ON `
