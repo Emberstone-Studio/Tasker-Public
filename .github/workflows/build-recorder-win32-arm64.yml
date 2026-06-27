@@ -1,0 +1,163 @@
+name: Build tasker-rec win32-arm64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+
+    steps:
+      - name: Set up MSVC (native ARM64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      - name: Write tasker-rec.cpp
+        run: |
+          @'
+          // tasker-rec — Tasker native microphone recorder (Windows).
+          // Captures default capture endpoint via WASAPI (shared mode) and streams
+          // raw 16 kHz, mono, signed 16-bit little-endian PCM to stdout.
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #include <mmdeviceapi.h>
+          #include <audioclient.h>
+          #include <avrt.h>
+          #include <io.h>
+          #include <fcntl.h>
+          #include <stdio.h>
+          #include <math.h>
+          #include <vector>
+
+          static volatile bool g_running = true;
+
+          static BOOL WINAPI ctrl_handler(DWORD type) {
+              switch (type) {
+                  case CTRL_C_EVENT: case CTRL_BREAK_EVENT:
+                  case CTRL_CLOSE_EVENT: case CTRL_LOGOFF_EVENT:
+                  case CTRL_SHUTDOWN_EVENT:
+                      g_running = false; return TRUE;
+              }
+              return FALSE;
+          }
+
+          #define OUT_RATE 16000
+
+          static void write_all(const BYTE* data, size_t len) {
+              while (len > 0) {
+                  int w = _write(_fileno(stdout), data, (unsigned)(len > 1<<20 ? (1<<20) : len));
+                  if (w <= 0) { g_running = false; return; }
+                  data += w; len -= (size_t)w;
+              }
+          }
+
+          #define FAIL(msg, hr) do { fprintf(stderr, "tasker-rec: " msg " (0x%08lx)\n", (unsigned long)(hr)); return 2; } while(0)
+
+          int main() {
+              _setmode(_fileno(stdout), _O_BINARY);
+              SetConsoleCtrlHandler(ctrl_handler, TRUE);
+              HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+              if (FAILED(hr)) FAIL("CoInitializeEx failed", hr);
+              IMMDeviceEnumerator* enumr = nullptr;
+              hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                    __uuidof(IMMDeviceEnumerator), (void**)&enumr);
+              if (FAILED(hr)) FAIL("CoCreateInstance(MMDeviceEnumerator) failed", hr);
+              IMMDevice* device = nullptr;
+              hr = enumr->GetDefaultAudioEndpoint(eCapture, eConsole, &device);
+              if (FAILED(hr)) FAIL("no default capture device", hr);
+              IAudioClient* client = nullptr;
+              hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void**)&client);
+              if (FAILED(hr)) FAIL("IAudioClient activate failed", hr);
+              WAVEFORMATEX* mix = nullptr;
+              hr = client->GetMixFormat(&mix);
+              if (FAILED(hr)) FAIL("GetMixFormat failed", hr);
+              const UINT32 srcRate = mix->nSamplesPerSec;
+              const UINT32 srcCh = mix->nChannels;
+              const bool srcFloat = (mix->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) ||
+                  (mix->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+                   reinterpret_cast<WAVEFORMATEXTENSIBLE*>(mix)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT);
+              const UINT32 srcBytesPerSample = mix->wBitsPerSample / 8;
+              REFERENCE_TIME dur = 2 * 10000000LL / 10;
+              hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, dur, 0, mix, nullptr);
+              if (FAILED(hr)) FAIL("IAudioClient::Initialize failed", hr);
+              IAudioCaptureClient* capture = nullptr;
+              hr = client->GetService(__uuidof(IAudioCaptureClient), (void**)&capture);
+              if (FAILED(hr)) FAIL("GetService(IAudioCaptureClient) failed", hr);
+              hr = client->Start();
+              if (FAILED(hr)) FAIL("IAudioClient::Start failed", hr);
+              double pos = 0.0;
+              const double step = (double)srcRate / (double)OUT_RATE;
+              double carryMono = 0.0;
+              bool haveCarry = false;
+              std::vector<BYTE> out;
+              out.reserve(OUT_RATE / 5 * 2);
+              while (g_running) {
+                  UINT32 packet = 0;
+                  hr = capture->GetNextPacketSize(&packet);
+                  if (FAILED(hr)) break;
+                  if (packet == 0) { Sleep(10); continue; }
+                  BYTE* data = nullptr; UINT32 frames = 0; DWORD flags = 0;
+                  hr = capture->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
+                  if (FAILED(hr)) break;
+                  std::vector<double> mono(frames);
+                  for (UINT32 i = 0; i < frames; i++) {
+                      double sum = 0.0;
+                      if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data) {
+                          const BYTE* frame = data + (size_t)i * srcCh * srcBytesPerSample;
+                          for (UINT32 c = 0; c < srcCh; c++) {
+                              const BYTE* s = frame + (size_t)c * srcBytesPerSample;
+                              if (srcFloat) sum += *reinterpret_cast<const float*>(s);
+                              else if (mix->wBitsPerSample == 16) sum += *reinterpret_cast<const short*>(s) / 32768.0;
+                              else if (mix->wBitsPerSample == 32) sum += *reinterpret_cast<const int*>(s) / 2147483648.0;
+                          }
+                      }
+                      mono[i] = srcCh ? sum / srcCh : 0.0;
+                  }
+                  out.clear();
+                  pos -= floor(pos);
+                  while (true) {
+                      UINT32 i0 = (UINT32)floor(pos);
+                      if (i0 + 1 >= frames) break;
+                      double frac = pos - i0;
+                      double a = (i0 == 0 && haveCarry) ? carryMono : mono[i0];
+                      double v = a * (1.0 - frac) + mono[i0 + 1] * frac;
+                      if (v > 1.0) v = 1.0; else if (v < -1.0) v = -1.0;
+                      short q = (short)(v < 0 ? v * 32768.0 : v * 32767.0);
+                      out.push_back((BYTE)(q & 0xff));
+                      out.push_back((BYTE)((q >> 8) & 0xff));
+                      pos += step;
+                  }
+                  if (frames > 0) { carryMono = mono[frames-1]; haveCarry = true; pos -= frames; }
+                  if (!out.empty()) write_all(out.data(), out.size());
+                  capture->ReleaseBuffer(frames);
+              }
+              client->Stop();
+              if (capture) capture->Release();
+              if (mix) CoTaskMemFree(mix);
+              if (client) client->Release();
+              if (device) device->Release();
+              if (enumr) enumr->Release();
+              CoUninitialize();
+              return 0;
+          }
+          '@ | Out-File -Encoding utf8 tasker-rec.cpp
+        shell: pwsh
+
+      - name: Build tasker-rec.exe (ARM64)
+        run: |
+          clang-cl --target=aarch64-pc-windows-msvc /O2 /EHsc /DUNICODE /D_UNICODE `
+            tasker-rec.cpp `
+            /link ole32.lib avrt.lib `
+            /out:tasker-rec.exe
+        shell: pwsh
+
+      - name: Print SHA-256
+        run: Get-FileHash tasker-rec.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" }
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: recorder-win32-arm64
+          path: tasker-rec.exe
