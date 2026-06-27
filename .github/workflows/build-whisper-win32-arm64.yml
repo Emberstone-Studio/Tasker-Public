@@ -17,29 +17,29 @@ jobs:
           repository: ggml-org/whisper.cpp
           ref: v1.8.6
 
-      - name: Show ggml-cpu CMakeLists for debugging
-        run: Get-Content ggml\src\CMakeLists.txt
-        shell: pwsh
-
-      - name: Remove x86-only sources that break ARM64 build
-        run: |
-          Remove-Item -Recurse -Force ggml\src\ggml-cpu\arch\x86
-        shell: pwsh
-
       - name: Set up MSVC (native ARM64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
 
+      - name: Write CMake toolchain file for ARM64
+        run: |
+          @"
+          set(CMAKE_SYSTEM_NAME Windows)
+          set(CMAKE_SYSTEM_PROCESSOR ARM64)
+          set(CMAKE_C_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe")
+          set(CMAKE_CXX_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe")
+          set(CMAKE_C_FLAGS_INIT "--target=aarch64-pc-windows-msvc")
+          set(CMAKE_CXX_FLAGS_INIT "--target=aarch64-pc-windows-msvc /EHsc")
+          set(CMAKE_LINKER "C:/Program Files/LLVM/bin/lld-link.exe")
+          "@ | Out-File -FilePath toolchain-arm64.cmake -Encoding utf8
+        shell: pwsh
+
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja `
+            -DCMAKE_TOOLCHAIN_FILE=toolchain-arm64.cmake `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER="C:/Program Files/LLVM/bin/clang-cl.exe" `
-            -DCMAKE_CXX_COMPILER="C:/Program Files/LLVM/bin/clang-cl.exe" `
-            -DCMAKE_C_FLAGS="--target=aarch64-pc-windows-msvc" `
-            -DCMAKE_CXX_FLAGS="--target=aarch64-pc-windows-msvc /EHsc" `
-            -DCMAKE_SYSTEM_PROCESSOR=ARM64 `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
             -DGGML_CUDA=OFF `
