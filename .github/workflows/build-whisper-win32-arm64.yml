@@ -29,7 +29,7 @@ jobs:
             -DCMAKE_C_COMPILER="C:/Program Files/LLVM/bin/clang-cl.exe" `
             -DCMAKE_CXX_COMPILER="C:/Program Files/LLVM/bin/clang-cl.exe" `
             -DCMAKE_C_FLAGS="--target=aarch64-pc-windows-msvc" `
-            -DCMAKE_CXX_FLAGS="--target=aarch64-pc-windows-msvc" `
+            -DCMAKE_CXX_FLAGS="--target=aarch64-pc-windows-msvc /EHsc" `
             -DCMAKE_SYSTEM_PROCESSOR=ARM64 `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
