@@ -24,21 +24,24 @@ jobs:
 
       - name: Write CMake toolchain file for ARM64
         run: |
-          @"
-          set(CMAKE_SYSTEM_NAME Windows)
-          set(CMAKE_SYSTEM_PROCESSOR ARM64)
-          set(CMAKE_C_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe")
-          set(CMAKE_CXX_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe")
-          set(CMAKE_C_FLAGS_INIT "--target=aarch64-pc-windows-msvc")
-          set(CMAKE_CXX_FLAGS_INIT "--target=aarch64-pc-windows-msvc /EHsc")
-          set(CMAKE_LINKER "C:/Program Files/LLVM/bin/lld-link.exe")
-          "@ | Out-File -FilePath toolchain-arm64.cmake -Encoding utf8
+          $content = @(
+            'set(CMAKE_SYSTEM_NAME Windows)',
+            'set(CMAKE_SYSTEM_PROCESSOR ARM64)',
+            'set(CMAKE_C_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe")',
+            'set(CMAKE_CXX_COMPILER "C:/Program Files/LLVM/bin/clang-cl.exe")',
+            'set(CMAKE_C_FLAGS_INIT "--target=aarch64-pc-windows-msvc")',
+            'set(CMAKE_CXX_FLAGS_INIT "--target=aarch64-pc-windows-msvc /EHsc")',
+            'set(CMAKE_LINKER "C:/Program Files/LLVM/bin/lld-link.exe")'
+          )
+          [System.IO.File]::WriteAllLines("$PWD\toolchain-arm64.cmake", $content)
+          Write-Output "Toolchain file written to: $PWD\toolchain-arm64.cmake"
+          Get-Content "$PWD\toolchain-arm64.cmake"
         shell: pwsh
 
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja `
-            -DCMAKE_TOOLCHAIN_FILE=toolchain-arm64.cmake `
+            "-DCMAKE_TOOLCHAIN_FILE=$PWD/toolchain-arm64.cmake" `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_NATIVE=OFF `
