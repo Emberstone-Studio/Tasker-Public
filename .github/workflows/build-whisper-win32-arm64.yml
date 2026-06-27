@@ -17,6 +17,15 @@ jobs:
           repository: ggml-org/whisper.cpp
           ref: v1.8.6
 
+      - name: Show ggml-cpu CMakeLists for debugging
+        run: Get-Content ggml\src\CMakeLists.txt
+        shell: pwsh
+
+      - name: Remove x86-only sources that break ARM64 build
+        run: |
+          Remove-Item -Recurse -Force ggml\src\ggml-cpu\arch\x86
+        shell: pwsh
+
       - name: Set up MSVC (native ARM64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
